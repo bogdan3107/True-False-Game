@@ -1,93 +1,61 @@
-import csv
-from typing import List
+from typing import Callable, List
 
+from TruthFalse.game_result import GameResult
 from TruthFalse.game_status import GameStatus
-from TruthFalse.invalid_operation_exception import InvalidOperationException
+from TruthFalse.question import Question
 
 
 class Game:
 
-    def __init__(self, filename: str = 'data/Questions.csv', max_tries: int = 3):
-        if max_tries > 5:
-            raise ValueError('Max tries must be less than 5!')
-
-        self.__filename = filename
-        self.__max_tries = max_tries
-        self._counter = 0
-        self._misses = 0
-        self.__game_status = GameStatus.NOT_STARTED
-        self.__questions = []
-        with open(self.__filename, 'r') as f:
-            reader = csv.reader(f, delimiter=';')
-            self.__questions = [row for row in reader]
-
-        self.__answered_indexes = [False for _ in range(len(self.__questions))]
-
-    def start_game(self):
+    def __init__(self, file_path: str, end_of_game_event: Callable, allowed_mistakes: int):
+        self.__file_path = file_path
+        self.__allowed_mistakes = allowed_mistakes
+        self.__end_of_game_event = end_of_game_event
+        self.__mistakes = 0
+        self.__questions: List[Question] = []
+        self.__counter = 0
         self.__game_status = GameStatus.IN_PROGRESS
 
-    @property
-    def question(self):
-        if not self.answered_indexes[self.counter]:
-            return self.questions[self.counter][0]
+        self.__fill_in_question(file_path, self.__questions)
 
-    @property
-    def answer_description(self):
-        return self.__questions[self.counter][2]
+    def get_next_question(self) -> Question:
+        return self.__questions[self.__counter]
 
-    def get_answer(self, answer: str) -> List[bool]:
-        if self.game_status != GameStatus.IN_PROGRESS:
-            raise InvalidOperationException(f'Game status: {self.game_status}')
+    def give_answer(self, answer: bool):
+        def is_last_question():
+            return self.__counter == len(self.__questions) - 1
 
-        if self.misses > self.max_tries:
-            raise InvalidOperationException(f'Exceeded max tries: {self.max_tries}')
+        def exceeded_allowed_mistakes():
+            return self.__mistakes > self.__allowed_mistakes
 
-        if not self.answered_indexes[self.counter]:
-            question = self.questions[self.counter]
-            correct_answer = question[1]
+        if self.__questions[self.__counter].is_true != answer:
+            self.__mistakes += 1
 
-            if answer.lower() == correct_answer[0].lower():
-                self.__answered_indexes[self.counter] = True
-                self._counter += 1
-            elif answer == 'next':
-                self._counter += 1
-            else:
-                self._counter += 1
-                self._misses += 1
+        if is_last_question() or exceeded_allowed_mistakes():
+            self.__game_status = GameStatus.GAME_IS_OVER
 
-        if self._counter == len(self.questions):
-            self.__game_status = GameStatus.WON
-        elif self.misses == self.max_tries:
-            self.__game_status = GameStatus.LOST
+            result = GameResult(self.__counter, self.__mistakes, self.__mistakes <= self.__allowed_mistakes)
+            self.__end_of_game_event(result)
 
-        return self.answered_indexes
-
-    @property
-    def get_game_status(self):
-        return self.__game_status
+        self.__counter += 1
 
     @property
     def game_status(self) -> GameStatus:
         return self.__game_status
 
-    @property
-    def max_tries(self) -> int:
-        return self.__max_tries
+    def __fill_in_question(self, file_path, questions):
+        with open(file_path, encoding='utf8') as f:
+            for line in f:
+                q = self.__parse_line(line)
+                questions.append(q)
 
-    @property
-    def counter(self) -> int:
-        return self._counter
+    def __parse_line(self, line) -> Question:
+        parts = line.split(';')
+        text = parts[0]
+        is_correct = parts[1] == 'Yes'
+        explanation = parts[2]
 
-    @property
-    def misses(self) -> int:
-        return self._misses
+        return Question(text, is_correct, explanation)
 
-    @property
-    def questions(self) -> list[list[str]]:
-        return self.__questions
-
-    @property
-    def answered_indexes(self) -> List:
-        return self.__answered_indexes
 
 
